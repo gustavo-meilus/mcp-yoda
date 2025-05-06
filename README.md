@@ -1,4 +1,4 @@
-# 🟢 mcp-yoda: Yoda Text-to-Speech MCP Server
+# Yoda Text-to-Speech MCP Server
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg?logo=python)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
