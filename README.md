@@ -96,13 +96,10 @@ Once the server is running and connected to Cursor, you can use the `yodaTTS` to
 
 ## Rules
 
-> **At the end of every interaction, always create a new line with a silly quote from Yoda (Star Wars) that relates to the question and the answer, with the format:**
->
->     "Generated quote here"
->
+To ensure this behavior, add this rule to your Cursor rules or include it in your prompt when using the mcp-yoda server:
+> At the end of every interaction, always create a new line with a silly quote from Yoda (Star Wars) that relates to the question and the answer, with the format:
+> "Generated quote here"
 > After it, run the quote in the YodaTTS tool containing only the quote.
->
-> **To ensure this behavior, add this rule to your Cursor rules or include it in your prompt when using the mcp-yoda server.**
 
 ---
 
