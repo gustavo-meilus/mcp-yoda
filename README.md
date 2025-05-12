@@ -1,9 +1,6 @@
 # Yoda Text-to-Speech MCP Server
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg?logo=python)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-## [Documentation](#documentation) | [API Reference](#api-reference)
 
 mcp-yoda is a simple, fun MCP server that brings Yoda's voice to your text using the [FakeYou TTS API](https://fakeyou.com/). It exposes a single tool, `yodaTTS`, which converts any text into a Yoda-style audio clip and plays it locally. Designed for use with [Cursor MCP](https://www.cursor.so/), but can be run standalone as well.
 
@@ -91,6 +88,10 @@ Add the following to your `.cursor/mcp.json` (or in Cursor's MCP settings):
 ### 4. Test the Yoda TTS tool
 
 Once the server is running and connected to Cursor, you can use the `yodaTTS` tool to convert any text to Yoda's voice. The audio will play locally and a download link will be provided.
+
+### Example
+
+Here is an example of the output: [example.wav](https://github.com/gustavo-meilus/mcp-yoda/tree/main/example)
 
 ---
 
