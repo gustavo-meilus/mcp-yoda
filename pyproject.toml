@@ -9,4 +9,10 @@ dependencies = [
     "mcp[cli]>=1.7.1",
     "requests>=2.31.0",
     "simpleaudio>=1.0.4",
+    "pygame>=2.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.13",
 ]
