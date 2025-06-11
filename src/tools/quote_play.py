@@ -19,8 +19,14 @@ logger = logging.getLogger(__name__)
 try:
     import pygame
 
-    pygame.mixer.init()
-    PYGAME_AVAILABLE = True
+    try:
+        pygame.mixer.init()
+        PYGAME_AVAILABLE = True
+        logger.info("Pygame initialized successfully")
+    except pygame.error as e:
+        PYGAME_AVAILABLE = False
+        logger.warning(f"Pygame mixer initialization failed: {e}")
+        logger.info("Will use fallback audio methods")
 except ImportError:
     PYGAME_AVAILABLE = False
     logger.warning("Pygame not available, using fallback audio methods")
@@ -31,6 +37,9 @@ mcp = FastMCP("Yoda TTS")
 
 def play_audio_pygame(file_path: str) -> bool:
     """Play audio using pygame."""
+    if not PYGAME_AVAILABLE:
+        logger.debug("Pygame not available, skipping pygame playback")
+        return False
     try:
         pygame.mixer.music.load(file_path)
         pygame.mixer.music.play()
