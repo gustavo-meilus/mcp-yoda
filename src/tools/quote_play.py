@@ -116,103 +116,206 @@ def play_audio(file_path: str) -> bool:
 def quote_play(quote: str) -> dict:
     POST_URL = "https://api.fakeyou.com/tts/inference"
     GET_URL = "https://api.fakeyou.com/v1/model_inference/job_status/"
-    post_body = {
-        "uuid_idempotency_token": str(uuid.uuid4()),
-        "tts_model_token": "weight_tqpbyrp6t9rmdez9c38zzvp0z",
-        "inference_text": quote,
+
+    # Add headers that might be required
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
     }
-    try:
-        logger.info(f"Generating TTS for text: {quote}")
-        post_res = requests.post(POST_URL, json=post_body)
-        post_res.raise_for_status()
-        post_data = post_res.json()
-        if not post_data.get("success"):
-            raise Exception("POST failed, it did.")
-        job_token = post_data["inference_job_token"]
-        done = False
-        result = None
-        attempts = 0
-        while not done and attempts < 10:  # Increased attempts
-            get_res = requests.get(f"{GET_URL}{job_token}")
-            get_res.raise_for_status()
-            get_data = get_res.json()
-            if not get_data.get("success"):
-                raise Exception("GET failed, it did.")
-            status = get_data["state"]["status"]["status"]
-            logger.info(f"Job status: {status}")
-            if status == "complete_success":
-                done = True
-                result = get_data["state"].get("maybe_result")
-            elif status == "failed":
-                raise Exception("Failed, the job has.")
-            else:
+
+    # List of Yoda models to try in order of preference
+    yoda_models = [
+        ("weight_8ye42btvd3ybnc6srbghr2ap2", "Yoda (Version 1.0)"),
+        ("weight_tqpbyrp6t9rmdez9c38zzvp0z", "Yoda (Version 2.0)"),
+    ]
+
+    last_error = None
+
+    for model_token, model_name in yoda_models:
+        logger.info(f"Trying model: {model_name}")
+
+        post_body = {
+            "uuid_idempotency_token": str(uuid.uuid4()),
+            "tts_model_token": model_token,
+            "inference_text": quote,
+        }
+
+        try:
+            logger.info(f"Generating TTS for text: {quote}")
+            post_res = requests.post(
+                POST_URL, json=post_body, headers=headers, timeout=10
+            )
+
+            # Check for rate limiting
+            if post_res.status_code == 429:
+                logger.warning("Rate limited by API")
+                last_error = "Rate limited, the API is. Try again later, you must."
+                continue
+
+            post_res.raise_for_status()
+            post_data = post_res.json()
+
+            if not post_data.get("success"):
+                logger.error(f"POST response: {post_data}")
+                last_error = post_data.get("error_reason", "Unknown error")
+                continue
+
+            job_token = post_data["inference_job_token"]
+            logger.info(f"Job token received: {job_token}")
+
+            done = False
+            result = None
+            attempts = 0
+            last_status = "unknown"
+            no_progress_count = 0
+
+            # Wait up to 60 seconds for the job to complete
+            while not done and attempts < 30:
                 time.sleep(2)
                 attempts += 1
-        if not done:
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Waited too long, I have. Cancelled, the job is.",
-                    }
-                ],
-                "isError": True,
-            }
-        if (
-            result
-            and result.get("media_links")
-            and result["media_links"].get("cdn_url")
-        ):
-            audio_url = result["media_links"]["cdn_url"]
-            logger.info(f"Downloading audio from: {audio_url}")
 
-            # Download the audio file
-            audio_res = requests.get(audio_url)
-            audio_res.raise_for_status()
+                try:
+                    get_res = requests.get(
+                        f"{GET_URL}{job_token}", headers=headers, timeout=10
+                    )
+                    get_res.raise_for_status()
+                    get_data = get_res.json()
 
-            # Save to temporary file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                tmp_file.write(audio_res.content)
-                tmp_file_path = tmp_file.name
+                    if not get_data.get("success"):
+                        logger.error(f"Job status check failed: {get_data}")
+                        break
 
-            try:
-                # Play the audio file
-                logger.info(f"Playing audio file: {tmp_file_path}")
-                success = play_audio(tmp_file_path)
+                    state = get_data.get("state", {})
+                    status_info = state.get("status", {})
+                    status = status_info.get("status", "unknown")
+                    attempt_count = status_info.get("attempt_count", 0)
 
-                if success:
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"Spoken, the words have been.\nAudio URL, you seek: {audio_url}",
+                    logger.info(
+                        f"Job status: {status} (attempt_count: {attempt_count}, poll: {attempts}/30)"
+                    )
+
+                    if status == "complete_success":
+                        done = True
+                        result = state.get("maybe_result")
+                        break
+                    elif status == "failed":
+                        error_info = state.get(
+                            "error",
+                            status_info.get(
+                                "maybe_extra_status_description", "Unknown error"
+                            ),
+                        )
+                        logger.error(f"Job failed: {error_info}")
+                        last_error = f"Failed with {model_name}: {error_info}"
+                        break
+                    elif status in ["started", "processing"]:
+                        # Job is making progress
+                        no_progress_count = 0
+                        logger.info("Processing, the job is. Patient, we must be.")
+                    elif status == "pending" and attempt_count == 0:
+                        # Still in queue
+                        no_progress_count += 1
+                        if no_progress_count >= 10:  # 20 seconds of no progress
+                            logger.warning(f"Job stuck in pending for {model_name}")
+                            last_error = (
+                                f"In queue too long with {model_name}, the job was."
+                            )
+                            break
+
+                    last_status = status
+
+                except Exception as e:
+                    logger.error(f"Error checking job status: {e}")
+                    break
+
+            if (
+                done
+                and result
+                and result.get("media_links")
+                and result["media_links"].get("cdn_url")
+            ):
+                audio_url = result["media_links"]["cdn_url"]
+                logger.info(f"Success! Downloading audio from: {audio_url}")
+
+                try:
+                    # Download the audio file
+                    audio_res = requests.get(audio_url, timeout=30)
+                    audio_res.raise_for_status()
+
+                    # Save to temporary file
+                    with tempfile.NamedTemporaryFile(
+                        suffix=".wav", delete=False
+                    ) as tmp_file:
+                        tmp_file.write(audio_res.content)
+                        tmp_file_path = tmp_file.name
+
+                    try:
+                        # Play the audio file
+                        logger.info(f"Playing audio file: {tmp_file_path}")
+                        success = play_audio(tmp_file_path)
+
+                        if success:
+                            return {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": f"Spoken with {model_name}, the words have been.\nAudio URL, you seek: {audio_url}",
+                                    }
+                                ]
                             }
-                        ]
-                    }
-                else:
+                        else:
+                            return {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": f"Audio URL from {model_name}, you seek: {audio_url}\nBut play the sound, I could not. Download and play manually, you must.",
+                                    }
+                                ],
+                                "isError": False,
+                            }
+                    finally:
+                        # Clean up temporary file
+                        try:
+                            os.unlink(tmp_file_path)
+                        except Exception as e:
+                            logger.warning(f"Could not delete temporary file: {e}")
+
+                except Exception as e:
+                    logger.error(f"Error downloading/playing audio: {e}")
                     return {
                         "content": [
                             {
                                 "type": "text",
-                                "text": f"Audio URL, you seek: {audio_url}\nBut play the sound, I could not. Download and play manually, you must.",
+                                "text": f"Generated audio URL with {model_name}: {audio_url}\nBut retrieve it, I could not. Error: {str(e)}",
                             }
                         ],
-                        "isError": False,  # Not a critical error, URL is provided
+                        "isError": False,
                     }
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(tmp_file_path)
-                except Exception as e:
-                    logger.warning(f"Could not delete temporary file: {e}")
-        else:
-            return {
-                "content": [{"type": "text", "text": "No audio URL found, there is."}],
-                "isError": True,
+            else:
+                # This model didn't work, try the next one
+                if not result:
+                    last_error = (
+                        f"No result from {model_name}. Status was: {last_status}"
+                    )
+                continue
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error with {model_name}: {e}")
+            last_error = f"Network error with {model_name}: {str(e)}"
+            continue
+        except Exception as e:
+            logger.error(f"Error with {model_name}: {e}")
+            last_error = f"Error with {model_name}: {str(e)}"
+            continue
+
+    # All models failed
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"Failed, all voice models have. Patience with the Force, you must have.\n\nLast error: {last_error}\n\nBusy or down, the TTS service might be. Try again later, you should.",
             }
-    except Exception as err:
-        logger.error(f"Error in yodaTTS: {err}")
-        return {
-            "content": [{"type": "text", "text": f"Error, there is: {str(err)}"}],
-            "isError": True,
-        }
+        ],
+        "isError": True,
+    }
